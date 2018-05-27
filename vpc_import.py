@@ -1,11 +1,21 @@
+#!/usr/bin/python
+# -*- coding: utf8 -*-
+
 import boto3
 import json
-settings1=json.load(open("vpcs_export.json"))
+import sys
+
+target_region_name='cn-northwest-1'
+
+session = boto3.Session(profile_name=sys.argv[1])
+client = session.client('ec2', region_name=target_region_name)
+ec2 = session.resource('ec2', region_name=target_region_name)
+
+
+'''
 settings2=json.load(open("vpcs_subnets.json"))
 settings3=json.load(open("sg_groups.json"))
 
-client = boto3.client('ec2')
-ec2 = boto3.resource('ec2')
 
 vpcdict={}
 for v in settings1['Vpcs']:
@@ -63,13 +73,59 @@ for i in settings4['Reservations']:
         if not len(SGIds)==0:
             ec2.create_instances(MaxCount=1,MinCount=1,ImageId=imagedict[ii['InstanceId']],InstanceType=ii['InstanceType'],SecurityGroupIds=SGIds,SubnetId=subnetdict[ii['SubnetId']],PrivateIpAddress=ii['PrivateIpAddress'])
 
+'''
 
+def print_tags(tag_list):
+    tag_str='Tags( '
+    for tag in tag_list:
+        tag_str += '{key}/{value} '.format(key=tag['Key'], value=tag['Value'])
 
+    tag_str += ')'
 
+    return tag_str
 
+def import_vpcs():
+    vpcs=json.load(open("vpcs_export.json"))
     
+    for vpc in vpcs['Vpcs']:
+        print('{cidr} {tags} IsDefault({IsDefault})'.format(cidr=vpc['CidrBlock'], tags=print_tags(vpc['Tags']), IsDefault=vpc['IsDefault']))
+        
+def import_subnets(vpc_id=None):
+    if vpc_id is None:
+        print("Please input VPC ID")
+        return
+
+    subnets=json.load(open("vpcs_subnets.json"))
+
+    for subnet in subnets['Subnets']:
+        print('{az} {cidr} {tags})'.format(az=subnet['AvailabilityZone'], cidr=subnet['CidrBlock'], tags=print_tags(subnet['Tags'])))
+
+        # TODO cn-north-1 => cn-northwest-1
+        response = client.create_subnet(
+            AvailabilityZone=subnet['AvailabilityZone'].replace('cn-north-1', 'cn-northwest-1'),
+            CidrBlock=subnet['CidrBlock'],
+            VpcId=vpc_id,
+            DryRun=False
+        )
+        print(response)
+    
+        # Adding tags
+        new_subnet = ec2.Subnet(response['Subnet']['SubnetId'])
+        tag = new_subnet.create_tags(
+            Tags=subnet['Tags']
+        )
+        print(tag)
+        
+
+
+def import_sg():
+    pass
 
 
 
+if __name__ == '__main__':
+    #import_vpcs()
+    import_subnets(vpc_id='vpc-xxxxx')
+    #import_sg()
 
 
