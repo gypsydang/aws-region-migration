@@ -99,12 +99,26 @@ def import_vpcs():
     vpcs=json.load(open("vpcs_export.json"))
     
     for vpc in vpcs['Vpcs']:
+        if 'Tags' not in vpc:
+            vpc['Tags'] = [
+                {
+                    'Key': 'Name',
+                    'Value': ''
+                }
+            ]
         print('{cidr} {tags} IsDefault({IsDefault})'.format(cidr=vpc['CidrBlock'], tags=print_tags(vpc['Tags']), IsDefault=vpc['IsDefault']))
         
 def import_subnets():
     subnets = load_json_from_file('vpcs_subnets.json')
 
     for subnet in subnets['Subnets']:
+        if 'Tags' not in subnet:
+            subnet['Tags'] = [
+                {
+                    'Key': 'Name',
+                    'Value': ''
+                }
+            ]
         print('{az} {cidr} {tags})'.format(az=subnet['AvailabilityZone'], cidr=subnet['CidrBlock'], tags=print_tags(subnet['Tags'])))
 
         if subnet['VpcId'] not in transform_map['vpc'].keys():
@@ -132,9 +146,28 @@ def import_subnets():
         #print(tag)
         
 
+def tranform_IpPermissions(permissions):
+    transformed_list=[]
+    for permission in permissions:
+        group_list=[]
+        if 'UserIdGroupPairs' in permission:
+            for group in permission['UserIdGroupPairs']:
+                print group
+                print transform_map['security_group'][group['GroupId']]
+            
+                group_list.append({
+                        'GroupId': transform_map['security_group'][group['GroupId']],
+                        'UserId': transform_map['account']['to']
+                    }
+                )
+            permission['UserIdGroupPairs']=group_list
+        transformed_list.append(permission)
+                
+    print transformed_list
+    return transformed_list
 
-def import_sg():
 
+def import_sg(Type='Group'):
     transform_map = load_json_from_file('transform.json')
     sg_groups = load_json_from_file('sg_groups.json')
 
@@ -145,41 +178,47 @@ def import_sg():
         if sg_group['GroupName'] == 'default':
             continue
 
-        response = client.create_security_group(
-            Description=sg_group['Description'],
-            GroupName=sg_group['GroupName'],
-            VpcId=transform_map['vpc'][sg_group['VpcId']]
-        )
+        if Type == 'Group':
+            response = client.create_security_group(
+                Description=sg_group['Description'],
+                GroupName=sg_group['GroupName'],
+                VpcId=transform_map['vpc'][sg_group['VpcId']]
+            )
 
-        print(response)
-        sg_id = response['GroupId']
-        security_group = ec2.SecurityGroup(sg_id)
-        # Adding Ingress/Egress rules
-        response = security_group.authorize_ingress(
-            IpPermissions=sg_group['IpPermissions']
-        )
-        ## TODO: Skip just here, later will clear the egress
-        #response = security_group.authorize_egress(
-            #IpPermissions=sg_group['IpPermissionsEgress']
-        #)
+            print(response)
+            sg_id = response['GroupId']
 
-        # Adding tags
-        tag = security_group.create_tags(
-            Tags=sg_group['Tags']
-        )
+            transform_map['security_group'][sg_group['GroupId']] = sg_id
 
-        print(tag)
+            print(sg_id)
 
-        transform_map['security_group'][sg_group['GroupId']] = sg_id
+            # Adding tags
+            if 'Tags' in sg_group:
+                tag = security_group.create_tags(
+                    Tags=sg_group['Tags']
+                )
+                print(tag)
+        elif Type == 'Rule':
+            # Adding Ingress/Egress rules
+            # TODO: Src ... sg mapping
+            security_group = ec2.SecurityGroup(transform_map['security_group'][sg_group['GroupId']])
+            response = security_group.authorize_ingress(
+                IpPermissions=tranform_IpPermissions(sg_group['IpPermissions'])
+            )
+            ## TODO: Skip just here, later will clear the egress
+            #response = security_group.authorize_egress(
+                #IpPermissions=sg_group['IpPermissionsEgress']
+            #)
 
-        write_json_to_file('transform.json', transform_map)
-
+    write_json_to_file('transform.json', transform_map)
 
 if __name__ == '__main__':
     transform_map = load_json_from_file('transform.json')
 
-    #import_vpcs()
-    #import_subnets()
-    import_sg()
+    import_vpcs()
+    import_subnets()
+    import_sg(Type='Group')
+    import_sg(Type='Rule')
 
+    write_json_to_file('transform.json', transform_map)
 
