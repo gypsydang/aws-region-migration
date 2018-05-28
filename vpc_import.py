@@ -168,7 +168,6 @@ def tranform_IpPermissions(permissions):
 
 
 def import_sg(Type='Group'):
-    transform_map = load_json_from_file('transform.json')
     sg_groups = load_json_from_file('sg_groups.json')
 
     for sg_group in sg_groups['SecurityGroups']:
