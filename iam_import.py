@@ -1,7 +1,13 @@
-import json
-import boto3
+#!/usr/bin/python
+# -*- coding: utf8 -*-
 
-client = boto3.client('iam')
+import boto3
+import json
+import sys
+
+session = boto3.Session(profile_name=sys.argv[1])
+
+client = session.client('iam')
 settings=json.load(open("iam_export.json"))
 
 
