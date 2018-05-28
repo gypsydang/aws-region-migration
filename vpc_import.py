@@ -193,6 +193,7 @@ def import_sg(Type='Group'):
             print(sg_id)
 
             # Adding tags
+            security_group = ec2.SecurityGroup(sg_id)
             if 'Tags' in sg_group:
                 tag = security_group.create_tags(
                     Tags=sg_group['Tags']
