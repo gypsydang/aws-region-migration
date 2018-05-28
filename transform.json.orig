@@ -9,5 +9,13 @@
   },
   "vpc": {
     "vpc-from": "vpc-to"
+  },
+  "account": {
+    "to": "to-account-id",
+    "from": "from-account-id"
+  },
+  "profile": {
+    "to": "chinakb",
+    "from": "default"
   }
 }
