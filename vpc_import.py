@@ -2,15 +2,26 @@
 # -*- coding: utf8 -*-
 
 import boto3
+from botocore.exceptions import ClientError
+
 import json
 import sys
+from utils import *
 
 target_region_name='cn-northwest-1'
 
-session = boto3.Session(profile_name=sys.argv[1])
-client = session.client('ec2', region_name=target_region_name)
-ec2 = session.resource('ec2', region_name=target_region_name)
 
+# 用于记录源数据到目标数据的ID转换, 例如 subnet_id, sg_id
+transform_map = {
+    'region': { 'from':'cn-north-1', 'to':'cn-northwest-1'},
+    'vpc':{},
+    'subnet':{},
+    'security_group':{}
+} 
+
+session = boto3.Session(profile_name=sys.argv[1])
+client = session.client('ec2', region_name=transform_map['region']['to'])
+ec2 = session.resource('ec2', region_name=target_region_name)
 
 '''
 settings2=json.load(open("vpcs_subnets.json"))
@@ -90,42 +101,85 @@ def import_vpcs():
     for vpc in vpcs['Vpcs']:
         print('{cidr} {tags} IsDefault({IsDefault})'.format(cidr=vpc['CidrBlock'], tags=print_tags(vpc['Tags']), IsDefault=vpc['IsDefault']))
         
-def import_subnets(vpc_id=None):
-    if vpc_id is None:
-        print("Please input VPC ID")
-        return
-
-    subnets=json.load(open("vpcs_subnets.json"))
+def import_subnets():
+    subnets = load_json_from_file('vpcs_subnets.json')
 
     for subnet in subnets['Subnets']:
         print('{az} {cidr} {tags})'.format(az=subnet['AvailabilityZone'], cidr=subnet['CidrBlock'], tags=print_tags(subnet['Tags'])))
 
-        # TODO cn-north-1 => cn-northwest-1
+        if subnet['VpcId'] not in transform_map['vpc'].keys():
+            continue
+
         response = client.create_subnet(
-            AvailabilityZone=subnet['AvailabilityZone'].replace('cn-north-1', 'cn-northwest-1'),
+            AvailabilityZone=subnet['AvailabilityZone'].replace(transform_map['region']['from'], transform_map['region']['to']),
             CidrBlock=subnet['CidrBlock'],
-            VpcId=vpc_id,
+            VpcId=transform_map['vpc'][subnet['VpcId']],
             DryRun=False
         )
-        print(response)
+        #print(response)
     
         # Adding tags
-        new_subnet = ec2.Subnet(response['Subnet']['SubnetId'])
+        dst_subnet_id = response['Subnet']['SubnetId']
+        new_subnet = ec2.Subnet(dst_subnet_id)
         tag = new_subnet.create_tags(
             Tags=subnet['Tags']
         )
-        print(tag)
+
+        transform_map['subnet'][subnet['SubnetId']] = dst_subnet_id
+
+        write_json_to_file('transform.json', transform_map)
+
+        #print(tag)
         
 
 
 def import_sg():
-    pass
 
+    transform_map = load_json_from_file('transform.json')
+    sg_groups = load_json_from_file('sg_groups.json')
+
+    for sg_group in sg_groups['SecurityGroups']:
+        if sg_group['VpcId'] not in transform_map['vpc'].keys():
+            continue
+
+        if sg_group['GroupName'] == 'default':
+            continue
+
+        response = client.create_security_group(
+            Description=sg_group['Description'],
+            GroupName=sg_group['GroupName'],
+            VpcId=transform_map['vpc'][sg_group['VpcId']]
+        )
+
+        print(response)
+        sg_id = response['GroupId']
+        security_group = ec2.SecurityGroup(sg_id)
+        # Adding Ingress/Egress rules
+        response = security_group.authorize_ingress(
+            IpPermissions=sg_group['IpPermissions']
+        )
+        ## TODO: Skip just here, later will clear the egress
+        #response = security_group.authorize_egress(
+            #IpPermissions=sg_group['IpPermissionsEgress']
+        #)
+
+        # Adding tags
+        tag = security_group.create_tags(
+            Tags=sg_group['Tags']
+        )
+
+        print(tag)
+
+        transform_map['security_group'][sg_group['GroupId']] = sg_id
+
+        write_json_to_file('transform.json', transform_map)
 
 
 if __name__ == '__main__':
+    transform_map = load_json_from_file('transform.json')
+
     #import_vpcs()
-    import_subnets(vpc_id='vpc-xxxxx')
-    #import_sg()
+    #import_subnets()
+    import_sg()
 
 

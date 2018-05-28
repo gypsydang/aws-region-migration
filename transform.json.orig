@@ -1,0 +1,13 @@
+{
+  "security_group": {
+  },
+  "subnet": {
+  },
+  "region": {
+    "to": "cn-northwest-1",
+    "from": "cn-north-1"
+  },
+  "vpc": {
+    "vpc-from": "vpc-to"
+  }
+}
